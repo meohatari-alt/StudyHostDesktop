@@ -1,0 +1,91 @@
+name: Build Windows exe
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate project files
+        run: |
+          mkdir -p src-tauri/src src-tauri/icons dist
+          cat > dist/index.html <<'EOF'
+          <!doctype html><meta charset="utf-8"><title>Study Buddy</title><p>Loading Study Buddy...</p>
+          EOF
+          cat > src-tauri/build.rs <<'EOF'
+          fn main() { tauri_build::build() }
+          EOF
+          cat > src-tauri/src/main.rs <<'EOF'
+          #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+          fn main() {
+              tauri::Builder::default()
+                  .run(tauri::generate_context!())
+                  .expect("error while running Study Buddy");
+          }
+          EOF
+          cat > src-tauri/Cargo.toml <<'EOF'
+          [package]
+          name = "study-buddy"
+          version = "1.0.0"
+          edition = "2021"
+
+          [build-dependencies]
+          tauri-build = { version = "2", features = [] }
+
+          [dependencies]
+          tauri = { version = "2", features = [] }
+
+          [profile.release]
+          opt-level = "s"
+          lto = true
+          codegen-units = 1
+          panic = "abort"
+          strip = true
+          EOF
+          cat > src-tauri/tauri.conf.json <<'EOF'
+          {
+            "$schema": "https://schema.tauri.app/config/2",
+            "productName": "Study Buddy",
+            "version": "1.0.0",
+            "identifier": "com.studybuddy.desktop",
+            "build": { "frontendDist": "../dist" },
+            "app": {
+              "windows": [
+                {
+                  "title": "Study Buddy",
+                  "url": "https://meohatari-alt.github.io/STUDYHOST/",
+                  "width": 1000,
+                  "height": 760,
+                  "minWidth": 380,
+                  "minHeight": 500
+                }
+              ],
+              "security": { "csp": null }
+            },
+            "bundle": { "active": false, "icon": ["icons/icon.ico", "icons/icon.png"] }
+          }
+          EOF
+
+      - name: Make icon from your site
+        run: |
+          curl -fsSL -o src-tauri/icons/icon.png https://meohatari-alt.github.io/STUDYHOST/icon-512.png
+          python -m pip install --quiet pillow
+          python -c "from PIL import Image; Image.open('src-tauri/icons/icon.png').convert('RGBA').save('src-tauri/icons/icon.ico', sizes=[(16,16),(32,32),(48,48),(64,64),(128,128),(256,256)])"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Build exe
+        run: npx --yes @tauri-apps/cli@2 build --no-bundle
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: StudyBuddy-exe
+          path: src-tauri/target/release/study-buddy.exe
